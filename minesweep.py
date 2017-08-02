@@ -3,7 +3,8 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver import ActionChains
 import time
 
-doneTiles = [ ]
+doneTiles = []
+mineField = []
 
 def isGameOver():
     try:
@@ -21,27 +22,33 @@ def isGameOver():
             return True
 
 def processTile(tileElem, tileNum):
+    numClicked = 0
+    
     # Get tile location
     tileId = tileElem.get_attribute("id")
 
     # Check if already finished tile
     if tileId in doneTiles:
         print('Skipped ' + tileId )
-        return
+        return numClicked
 
     location = [int(s) for s in tileId.split('_') if s.isdigit()]
 
     # Get surrounding tiles
-    adjTiles = getAdjacentTiles(location)
     print(str(location) + ': Processing')
+    adjTiles = getAdjacentTiles(location)
 
-    # Check for obvious bombs
+    # Check for obvious bombs or blanks
     numBlanks = 0
+    numBombs = 0
 
     for adjTileElem in adjTiles:
         # Check if blank tile
-        if 'blank' in adjTileElem.get_attribute('class') or 'bombflagged' in adjTileElem.get_attribute('class'):
+        tileType = adjTileElem.get_attribute('class')
+        if 'blank' in tileType or 'bombflagged' in tileType:
             numBlanks += 1
+        if 'bombflagged' in tileType:
+            numBombs += 1
 
     if numBlanks == tileNum:
         # Add to completed tiles list
@@ -53,15 +60,7 @@ def processTile(tileElem, tileNum):
                 # Right clicks tile to flag as bomb
                 actionChains = ActionChains(browser)
                 actionChains.context_click(adjTileElem).perform()
-                tileClicked = True
-
-    # Check for obvious blanks
-    numBombs = 0
-
-    for adjTileElem in adjTiles:
-        # Check if blank tile
-        if 'bombflagged' in adjTileElem.get_attribute('class'):
-            numBombs += 1
+                numClicked += 1
 
     if numBombs == tileNum:
         # Add to completed tiles list
@@ -72,10 +71,11 @@ def processTile(tileElem, tileNum):
             if 'blank' in adjTileElem.get_attribute('class'):
                 # clicks obviously safe tile
                 adjTileElem.click()
-                processTile(adjTileElem, int(adjTileElem.get_attribute("class")[-1]))
-                tileClicked = True
+                numClicked += 1 + processTile(adjTileElem, int(adjTileElem.get_attribute("class")[-1]))
+
 
     print(str(location) + ': Done')
+    return numClicked
 
 def getAdjacentTiles(position):
     # initialize function/variables
@@ -94,15 +94,13 @@ def getAdjacentTiles(position):
 
        # Check if valid row and column
        if row > 0 and row < 17 and col > 0 and col < 31:
-           # Get element id
-           elemId = str(row) + '_' + str(col)
+           # Get webElement of the tile, indexed to account for 0-based offset of list
+           currentElem = mineField[row - 1][col - 1]
 
-           # Get webElement of the tile
-           try:
-               currentElem = browser.find_element_by_id(elemId)
+           #Only add either blank or flag tiles
+           tileType = currentElem.get_attribute('class')
+           if 'bombflagged' in tileType or 'blank' in tileType:
                adjTiles.append(currentElem)
-           except:
-               print('ERROR: Tile with id "' + elemId + '" could not be found.')
 
     # Return all adjacent tiles
     return adjTiles
@@ -113,15 +111,23 @@ browser = webdriver.Firefox()
 # Open browser to this page
 browser.get('http://minesweeperonline.com/')
 
+print('Getting field data ...')
+for i in range(1, 17):
+    mineField.append([])
+    for j in range(1, 31):
+        tileId = str(i) + '_' + str(j)
+        mineField[i - 1].append(browser.find_element_by_id(tileId))
+print('Done getting field data')
+
 choice = ''
+
 while not choice == 'quit':
     # Get top left tile element
-    tile = browser.find_element_by_id('1_1')
-    tile.click()
+    mineField[1][1].click()
 
     while not isGameOver():
-        # Unset flag
-        tileClicked = False
+        # Reset number of tiles clicked
+        tilesClicked = 0
 
         # Loop through all numbered tile types
         for tileNum in range(1,9):
@@ -131,13 +137,15 @@ while not choice == 'quit':
                 print( 'Number of ' + str(tileNum) + ' tiles: ' + str(len(tileList)))
 
                 for i in range(len(tileList)):
-                    processTile(tileList[i], tileNum)
+                    tilesClicked += processTile(tileList[i], tileNum)
             except Exception as err:
                 print('An exception happened: ' + str(err))
 
         # Check if no tiles were clicked
-        if not tileClicked:
-            pass
+        print('Tiles Clicked: ' + str(tilesClicked))
+        if tilesClicked == 0:
+            print('Stuck')
+            stuck = input()
 
     # Get user input
     doneTiles.clear()
